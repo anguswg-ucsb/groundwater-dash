@@ -1,0 +1,9 @@
+name: "Angus Watters"
+output_dir: '.'
+navbar:
+  title: "groundwater"
+  left:
+    - text: "tmp1"
+      href: tmp1.html
+output:
+  rmdformats::downcute
