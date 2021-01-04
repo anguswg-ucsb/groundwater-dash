@@ -35,17 +35,16 @@ today_pts = function(time_data){
 
 
 make_graph  = function(az_time, wellid){
-  subset = filter(az_time, wellid == wellid) %>%
-    ungroup() %>% 
-    as.data.table()
+  
+  subset = dplyr::filter(az_time, wellid == !!wellid) %>% 
+    select(date, wellid, dtw) %>% 
+    data.frame()
+  
+  subset = subset[!duplicated(subset$date),]
 
-      subset$wellid <- as.numeric(subset$wellid)
-
-      subset = subset %>% select(date, wellid, dtw)
-
-      subset = as.xts.data.table(subset) 
+  rownames(subset) = subset$date
       
-    dygraph(data = subset$dtw,
+  dygraph(data = dplyr::select(subset,dtw),
             main = paste0("Well ", subset$wellid[1]),
             ylab = 'Depth to water (ft)',
             xlab = 'Date') %>%
@@ -55,24 +54,6 @@ make_graph  = function(az_time, wellid){
       dyOptions(stackedGraph = TRUE,
                 colors = c("navy"))
 
-
-  # subset = filter(az_time, wellid == wellid) %>%
-  #   ungroup() %>%
-  #   data.frame()
-  # 
-  # 
-  # rownames(subset) <- as.Date(subset$date)
-  # subset2 = subset %>% select(dtw)
-  # 
-  # dygraph(data = subset2,
-  #         main = paste0("Well ", subset$wellid[1]),
-  #         ylab = 'Depth to water (ft)',
-  #         xlab = 'Date') %>%
-  #   dyHighlight(highlightCircleSize = 4,
-  #               highlightSeriesBackgroundAlpha = 0.6,
-  #               highlightSeriesOpts = list(strokeWidth = 2.5)) %>%
-  #   dyOptions(stackedGraph = TRUE,
-  #             colors = c("navy"))
 }
 
 
@@ -85,6 +66,7 @@ basemap = function(az_time){
     group_by(wellid) %>% 
     st_as_sf(coords = c('lng', 'lat'), crs = 4326) %>% 
     na.omit()
+  
   leaflet(data = az_spatial) %>%
     addProviderTiles(providers$CartoDB.Positron) %>%
     addScaleBar("bottomleft") %>%
