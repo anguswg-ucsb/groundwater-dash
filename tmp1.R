@@ -2,10 +2,12 @@
 # Groundwater dashboard
 # 1/1/2021
 # Data Manipulation
-
+library(tidyr)
 library(dplyr)    # data.frames
 library(sf)       # Spatial
+library(climateR)
 
+library(AOI)
 # Interactive Data Viz
 library(leaflet)  # Maps
 library(dygraphs) # Charts
@@ -19,6 +21,238 @@ library(dqshiny)    # auto complete
 library(shiny)       # Starting Reactivity
 library(shinythemes) # themes
 
+az_time = readRDS('data/az/az-join-time.rds') %>%
+  # filter(source == 'AZ') %>%
+  select(!measure_period)
+
+az_spatial = az_time %>%
+  group_by(wellid) %>%
+  arrange(desc(date)) %>%
+  slice(n = 1) %>%
+  st_as_sf(coords = c('lng', 'lat'), crs = 5070)
+
+well = az_spatial %>% filter(wellid == 5301)
+buffer = st_buffer(az_spatial[well, ], 5000)
+neighbors =st_intersection(buffer, az_spatial)         
+
+az = USAboundaries::us_states() %>% 
+  filter(name == 'Arizona') %>% 
+  st_as_sf() %>% 
+  st_transform(5070)
+ggplot() + 
+  geom_sf(data = az) +
+  geom_sf(data = well) +
+  geom_sf(data = buffer) + 
+  geom_sf(data = st_intersection(az_spatial, buffer), col = "darkred", size = .5) 
+
+
+
+
+
+
+
+
+tmp = join_time %>% filter(wellid == c('6001', '5998', '814', '4261')) 
+ggplot(data = temp2) +
+  geom_pointrange(
+    mapping = aes(x = wellid, y = dtw),
+    stat = "summary",
+    fun.min = min,
+    fun.max = max,
+    fun = median
+  )
+
+
+
+pop = readxl::read_xls('data/pop-estimates.xls') %>% 
+  select(fips = FIPStxt, state = State, county = Area_Name, POP_ESTIMATE_2010:POP_ESTIMATE_2019) %>% 
+  janitor::clean_names() %>% 
+  filter(state == 'AZ') %>% 
+  mutate(fips = as.numeric(fips))
+
+pop = pop[2:16,]
+
+counties = readRDS('data/counties.rds')
+
+tmp1 = left_join(select(pop, fips, county, pop = pop_estimate_2019), counties, by = 'fips')
+
+tmp1 = tmp1 %>%
+  st_as_sf() %>% 
+  st_transform(4326)
+
+az_spatial = az_time %>%
+  group_by(wellid) %>%
+  arrange(desc(date)) %>% 
+  slice(n = 1) %>% 
+  st_as_sf(coords = c('lng', 'lat'), crs = 4326) %>% 
+  na.omit() %>% 
+  select(wellid, date, dtw)
+
+well_pops = st_join(az_spatial, tmp1) 
+
+well_pops = well_pops %>% 
+  group_by()
+
+
+
+
+
+
+
+
+
+srad = getGridMET(AOI::geocode("Arizona", pt = TRUE),
+                  param = "srad",
+                  startDate = "2020-01-01",
+                  endDate = "2020-01-05")
+
+sites = read.csv('data/example.csv') %>%
+  st_as_sf(coords = c("long", "lat"), crs = 4326)
+
+az_rain = getTerraClim(AOI = az_counties,
+                           param = "srad",
+                           startDate = "2018-01-01",
+                           endDate = "2018-01-05")
+ggplot(data = az_rain,
+       aes(x = date, y = srad, col = srad)) +
+  geom_line() +
+  labs(title = "Solar Radiation @ UCSB",
+       x = "Date", y = "Solar Radiation (W/m^2)") +
+  stat_smooth(col = "red") +
+  theme_linedraw() +
+  scale_color_viridis_c()
+
+
+
+
+
+#################
+
+
+############## STEP 2 ##############
+
+# *** STEP 2.1 ***
+
+water_use <-  readxl::read_xlsx('data/usco2015v2.0.xlsx', 1, skip = 1) %>%
+  janitor::clean_names() %>%
+  rename(population = tp_tot_pop)
+
+# convert chr columns to numerics
+water_use <- water_use %>%
+  mutate(across(c(8:141), as.numeric))
+
+
+withdrawal_total = water_use %>% 
+  select(state, county, do_wsw_fr, do_wgw_fr,
+         contains('wsw_to'), contains('wgw_to'),
+         ir_wsw_fr, ir_wgw_fr,
+         li_wsw_fr, li_wgw_fr)
+withdrawal_total <- withdrawal_total %>%
+  filter(state == "AZ") %>% 
+  group_by(county) %>% 
+  mutate(dom_surface = ps_wsw_to + do_wsw_fr,
+         dom_groundwater = ps_wgw_to + do_wgw_fr,
+         industrial_surface = in_wsw_to,
+         industrial_groundwater = in_wgw_to,
+         agr_surface = ir_wsw_fr + li_wsw_fr + aq_wsw_to,
+         agr_groundwater = ir_wgw_fr + li_wgw_fr + aq_wgw_to,
+         mining_surface = mi_wsw_to,
+         mining_groundwater = mi_wgw_to,
+         thermo_surface = pt_wsw_to,
+         thermo_groundwater = pt_wgw_to) %>% 
+  select(1:2, 25:34)
+
+sectors_total <- withdrawal_total %>%   pivot_longer(cols = c(3:12), names_to = "sector", values_to = "withdrawal")
+
+sectors_total$source <- ifelse(grepl("surface", sectors_total$sector, ignore.case = T), "surface_water", 
+                  ifelse(grepl("groundwater", sectors_total$sector, ignore.case = T), "groundwater", "Other"))
+
+sectors_total$sector <- ifelse(grepl("industrial", sectors_total$sector, ignore.case = T), "Industrial", 
+                      ifelse(grepl("dom", sectors_total$sector, ignore.case = T), "Domestic",
+                      ifelse(grepl("agr", sectors_total$sector, ignore.case = T), "Agriculture",
+                      ifelse(grepl("mining", sectors_total$sector, ignore.case = T), "Mining",
+                    ifelse(grepl("thermo", sectors_total$sector, ignore.case = T), "Thermoelectric", "Other"))))) 
+sectors_total <- sectors_total %>% 
+  select(state, county, sector, source, withdrawal)
+sectors_total$county = gsub(" County", '', sectors_total$county)
+
+county_well <- sectors_total %>% 
+  filter(county == "Apache")
+ggplot(county_well, aes(x = sector, y = withdrawal)) +
+  geom_col(aes(fill = source), alpha = 0.7)  +
+  labs(title = "SECTOR WITHDRAWALS",
+       x = "SECTOR",
+       y = "WITHDRAWALS",
+       fill = "") +
+  scale_fill_manual(values = c('green4', 'dodgerblue3')) +
+  theme_bw() +
+  theme(plot.title =element_text(size = 16, hjust = 0.5, vjust = 2),
+        axis.text = element_text(face = "bold", size =10),
+        axis.title = element_text(size = 12),
+        legend.title = element_text(size = 12),
+        plot.caption = element_text(hjust = 0, face = "bold", size = 12))
+
+
+
+# aggregating columns into 5 sectors and total, then selecting only those cols & state
+sectors <-  freshwater_totals %>%
+  mutate(Domestic = ps_w_fr_to + do_w_fr_to,
+         Industrial = in_w_fr_to,
+         Agriculture = ir_w_fr_to + li_w_fr_to + aq_w_fr_to,
+         Mining = mi_w_fr_to,
+         Thermoelectric = pt_w_fr_to,
+         Total = Domestic + Industrial + Agriculture + Mining + Thermoelectric) %>%
+  select(1, 15:20)
+
+# *** STEP 3.2 ***
+# summarize across columns then df pivot longer
+sectors <- sectors %>%
+  # filter(state %in% c("CA", "NY")) %>%
+  group_by(state) %>%
+  summarise(across(Domestic:Total, sum)) %>%
+  pivot_longer(cols = c(2:7), names_to = "sector", values_to = "withdrawal")
+
+# ADD COUNTY COLUMN TO EACH WELL
+counties = USAboundaries::us_counties() %>%
+  filter(state_name == "Arizona")
+
+az_spatial = az_time %>%
+  group_by(wellid) %>%
+  arrange(desc(date)) %>% 
+  slice(n = 1) %>% 
+  st_as_sf(coords = c('lng', 'lat'), crs = 4326) %>% 
+  na.omit() %>% 
+  select(wellid, date, dtw)
+
+az_spatial = st_join(az_spatial, counties)
+az_time = left_join(az_time, select(az_spatial, wellid, name), by = "wellid") %>%
+  select(!geometry)
+
+subset = well_counties %>% select(year, wellid, dtw, date, county, pop)
+# subset = dplyr::filter(az_time, wellid == !!wellid) %>% 
+#   select(date, wellid, dtw) %>% 
+#   data.frame()
+# 
+# subset = subset[!duplicated(subset$date),]
+install.packages('WDI')
+df <- WDI(country = c("US"), indicator = "TX.QTY.MRCH.XD.WD", start = 1980, end = 2013, extra = FALSE)
+x = WDI::WDIsearch()
+df$exports <- df$TX.QTY.MRCH.XD.WD
+
+df1 <- df %>%
+  select(country, year, exports) %>%
+  mutate(country = gsub("United States", "USA", df$country)) %>%
+  spread(key = country, value = exports) %>%
+  mutate(date = as.Date(as.character(year), format = "%Y")) %>%
+  select(-year) 
+
+# stackedGraph = TRUE
+
+# well_counties$name <- gsub("^.{0,13}", "", well_counties$name)
+# well_counties = well_counties %>% 
+#   mutate(name = as.numeric(name))
+# 
+# well_counties = well_counties %>% rename(year = 'name', pop = 'value')
 
 source('helper.R')
 today = today_pts(az_time) 
