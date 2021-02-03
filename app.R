@@ -15,7 +15,9 @@ ui <- dashboardPage(
              #                    structure(today$county, names = today$name)),
              box(width = NULL, solidHeader = TRUE,
                  leafletOutput("groundMap", height = 650)),
-             box(width = NULL, title = "Statistics",
+             box(width = NULL,
+                 title = "Statistics",
+                 status = "primary",
                  solidHeader = TRUE,
                  DTOutput('groundTable'))
              
@@ -49,25 +51,25 @@ server <- function(input, output, session) {
   output$groundGraph   <- renderDygraph({ make_graph(az_time, wellid) })
   output$groundGraph2  <- renderDygraph({ make_graph2(az_time, wellid) })
   output$groundPlot    <- renderPlotly({ withdrawals_plot(az_time, sector_total, wellid) })
-  output$groundTable <- renderDT({ make_table(az_time, wellid) })
+  output$groundTable <- renderDT({ make_table(today, az_time, wellid) })
   output$groundMessage <- renderText(v$msg)
   output$depthValue <- renderValueBox({
     valueBox(
       paste0((well_stats(az_time, wellid)[3])),
       subtitle = "DEPTH",
-      icon = icon("user"),
+      icon = icon("water"),
       color = "blue") })
   output$minValue <- renderValueBox({
     valueBox(
       paste0((well_stats(az_time, wellid)[4])),
       subtitle = "MINMUMUM DEPTH",
-      icon = icon("user"),
+      icon = icon("arrow-up"),
       color = "green") })
   output$maxValue <- renderValueBox({
     valueBox(
       paste0((well_stats(az_time, wellid)[5])),
       subtitle = "MAXIMUM DEPTH",
-      icon = icon("user"),
+      icon = icon("arrow-down"),
       color = "red") })
   observeEvent(input$groundMap_marker_mouseout, {
     v$msg <- "Mouse is over: "
@@ -81,7 +83,7 @@ server <- function(input, output, session) {
     # output$groundTable   <- renderDT({ make_table(az_time, wellid) })
     output$groundGraph2  <- renderDygraph({ make_graph2(az_time, wellid) })
     output$groundPlot    <- renderPlotly({ withdrawals_plot(az_time, sector_total, wellid) })
-    output$groundTable <- renderDT({ make_table(az_time, wellid) })
+    output$groundTable <- renderDT({ make_table(today, az_time,  wellid) })
     output$groundMessage <- renderText(v$msg)
     output$depthValue <- renderValueBox({
       valueBox(

@@ -152,7 +152,7 @@ zoom_to_well = function(map, today, well){
 }
 
 ## Build time series table
-make_table = function(az_time, wellid){
+make_table = function(today, az_time, wellid){
   tmp1 = today %>% filter(wellid == !!wellid)
   # tmp1 = az_time %>% filter(wellid == wellid)
   # Filter todays data to wellid time series record
