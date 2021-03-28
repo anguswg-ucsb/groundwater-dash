@@ -1,0 +1,228 @@
+---
+title: "NWM"
+runtime: shiny
+output: 
+  flexdashboard::flex_dashboard:
+    navbar:
+      - { icon: "fa-question-circle", href: "https://ufokn.com/", align: right }
+    theme: cerulean
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include = FALSE}
+library(tidyverse)    # data.frames
+library(sf)       # Spatial
+library(data.table)
+
+# Interactive Data Viz
+library(leaflet)  # Maps
+library(dygraphs) # Charts
+library(plotly)
+library(DT)       # tables
+library(rvest)    # webscraping
+library(climateR)
+# Shiny
+library(dqshiny)    # auto complete
+library(shiny)       # Starting Reactivity
+library(flexdashboard)
+library(shinythemes) # themes
+
+source('helper2.R')
+az_time = readRDS('az-join-time.rds') 
+sector_total <- readRDS('sectors.rds')
+  # ama = read_sf('shps/Act_Man_Areas.shp') %>% 
+  #   st_transform(4326) %>% 
+  #   st_cast("MULTIPOLYGON")
+today = today_pts(az_time) 
+basemap  <-  basemap(today)
+```
+
+```{r context="server"}
+   wellid <- today$wellid[which.max(today$dtw)]
+   v   <- reactiveValues(msg = "Arizona Dept. of Water Resources")
+       
+         output$groundMap     <- renderLeaflet({ basemap })
+         
+         # output$groundGraph2  <- renderDygraph({ make_graph2(az_time, wellid) })
+         # output$groundPlot    <- renderPlotly({ withdrawals_plot(az_time, sector_total, wellid) })
+         output$groundTable <- renderDT({ make_table(today, az_time, wellid) })
+         output$groundMessage <- renderText(v$msg)
+         # output$depthValue <- renderValueBox({
+         #     valueBox(
+         #         paste0((well_stats(az_time, wellid)[3])),
+         #         icon = icon("water")) })
+         # output$minValue <- renderValueBox({
+         #     valueBox(
+         #         paste0((well_stats(az_time, wellid)[4])),
+         #         icon = icon("arrow-up")) })
+         # output$maxValue <- renderValueBox({
+         #     valueBox(
+         #         paste0((well_stats(az_time, wellid)[5])),
+         #         icon = icon("arrow-down")) })
+```
+
+
+
+Groundwater {data-icon="fa-tint"}
+=====================================
+
+Inputs {.sidebar}
+-------------------------------------
+### **Submit**
+```{r}
+shiny::actionButton("dateButton", label = "Enter", icon("search"))
+```
+
+Column 
+-----------------------------------------------------------------------
+### Map
+```{r}
+leafletOutput("groundMap")
+```
+
+### box 1
+```{r}
+DTOutput("groundTable")
+```
+
+```{r context = "server"}
+# reactive TS to click
+groundTable <- eventReactive(input$groundMap_marker_click, {
+  wellid <<- input$groundMap_marker_click$id
+          
+  tmp1 = today %>% filter(wellid == !!wellid)
+  # tmp1 = az_time %>% filter(wellid == wellid)
+  # Filter todays data to wellid time series record
+  tmp1 = az_time %>% filter(wellid == tmp1$wellid) %>%
+    arrange(desc(date), desc(measurement_dist)) %>%
+    select(wellid:dtw)
+  tmp2 = tmp1[!duplicated(tmp1$date),]
+  
+  # Interactive Data table
+  datatable(tmp2, caption = paste0('WELL ', tmp1$wellid, ' -----  AVERAGE DTW: ', round(tmp1$avg_dtw),
+                                   'ft -----  MINIMUM: ',
+                                   round(tmp1$min_dtw),
+                                   'ft -----  MAXIMUM: ', round(tmp1$max_dtw), 'ft'),
+            options = list(paging = FALSE, searching = TRUE))
+
+  })
+
+output$groundGraph <- renderDygraph({
+        groundTable()
+      })
+```
+
+Column 
+-----------------------------------------------------------------------
+### GROUND GRAPH
+```{r}
+dygraphOutput("groundGraph")
+```
+
+### Water use
+```{r}
+plotlyOutput("groundPlot")
+```
+
+### Precip
+```{r}
+dygraphOutput("precipGraph")
+```
+
+```{r}
+precipData <- eventReactive(input$groundMap_click, {
+  # if(is.null(input$groundMap_click)) {
+  #   NULL
+  # } else {
+    click <<- input$groundMap_click %>% 
+      data.frame() %>% 
+      dplyr::select(lat,lng)
+    print(click)
+    pt <- sf::st_as_sf(click, 
+                        coords = c("lng", "lat"), 
+                        crs = 4326)
+    
+    precip <- getTerraClim(AOI = pt, param = "prcp",
+                                startDate = "1993-01-01",
+                                endDate = "2014-12-31")
+    
+    precip$date <- paste0(precip$date, "-01")
+    precip$date <- as.Date(precip$date)
+    rownames(precip) <- precip$date
+    precip <- select(precip, prcp)
+
+    dygraph(data = precip,
+            main = "Precipitation",
+            ylab = "Precipitation (mm)",
+            xlab = "Date") %>% 
+      dyHighlight(highlightCircleSize = 2,
+                highlightSeriesBackgroundAlpha = .3) %>%
+          dyOptions(colors = c("darkcyan"),
+              fillGraph = TRUE) 
+  
+})
+
+
+output$precipGraph <- renderDygraph({
+  precipData()
+})
+```
+
+
+```{r context = "server"}
+# reactive TS to click
+groundTS <- eventReactive(input$groundMap_marker_click, {
+  wellid <<- input$groundMap_marker_click$id
+          
+ make_graph(az_time, wellid)
+
+  })
+
+output$groundGraph <- renderDygraph({
+        groundTS()
+      })
+```
+
+```{r context = "server"}
+# reactive TS to click
+waterUseData <- eventReactive(input$groundMap_marker_click, {
+  wellid <<- input$groundMap_marker_click$id
+          
+ withdrawals_plot(az_time, sector_total, wellid)
+
+  })
+
+output$groundPlot <- renderPlotly({
+        waterUseData()
+      })
+```
+
+```{r}
+valBoxData <- eventReactive(input$groundMap_marker_click, {
+  wellid <<- input$groundMap_marker_click$id
+          
+ well_stats(az_time, comid)[4]
+
+  })
+
+output$minValue <- renderValueBox({
+             valueBox(
+                 valBoxData(),
+                 icon = icon("arrow-up")) 
+  })
+      
+```
+
+
+
+
+
+
+
+
+
+
+
+
+### 
